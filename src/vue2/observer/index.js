@@ -1,29 +1,38 @@
 import Dep from '../dep/index.js';
+import { def } from '../util/index.js';
 
 /**
- * @description 创建并返回一个 Observer 实例
+ * @description 为引用类型创建数据劫持，并返回一个 Observer 实例
  */
-export function observe(value) {
+export function observe(obj) {
     // 终止条件：非对象、null 或已被劫持
-    if (typeof value !== 'object' || value === null /*  || value.__ob__ instanceof Observer */) {
-        // return value.__ob__;
+    if (
+        obj &&
+        Object.prototype.hasOwnProperty.call(obj, '__obj__') &&
+        obj.__ob__ instanceof Observer
+    ) {
+        return obj.__ob__;
+    }
+
+    if (typeof obj !== 'object' || obj === null) {
         return;
     }
 
-    return new Observer(value);
+    return new Observer(obj);
 }
 
 /**
- * @description 通过 Object.defineProperty 进行数据劫持，定义响应式数据
+ * @description 通过 Object.defineProperty 为对象数据进行属性劫持
  */
-function defineReactive(obj, key, val) {
-    // 递归处理嵌套对象
-    if (typeof val === 'object' && val !== null) {
-        observe(val);
-    }
-
+export function defineReactive(obj, key, val) {
     // 依赖收集容器
     const dep = new Dep();
+
+    let childOb;
+    // 递归处理嵌套对象
+    if (typeof val === 'object' && val !== null) {
+        childOb = observe(val);
+    }
 
     Object.defineProperty(obj, key, {
         enumerable: true, // 保证属性可枚举
@@ -33,9 +42,14 @@ function defineReactive(obj, key, val) {
 
             // 依赖收集：这里被触发，说明有观察者正在访问数据，应使用 dep 收集 watcher
             // dep 成了闭包
-            // ? 但是，是哪个 watcher 正在访问数据？这个 watcher 需要在 需要在 Watcher 中提前暂存
+            // ? 但是，是哪个 watcher 正在访问数据？这个 watcher 需要在 Watcher 中提前暂存
             if (Dep.target) {
                 dep.depend();
+
+                // __ob__ 也要在这里收集依赖
+                if (childOb) {
+                    childOb.dep.depend();
+                }
             }
             return val;
         },
@@ -45,7 +59,7 @@ function defineReactive(obj, key, val) {
             // 派发更新：这里被触发，说明正在修改数据，应使用 dep 通知所有依赖
             console.log('正在修改属性：', key, '，新值为：', newVal);
             val = newVal;
-            observe(newVal); // 新的值是一个普通数据，记得也要进行劫持
+            childOb = observe(newVal); // 如果新的值是一个引用类型的数据，记得也要递归劫持，并更新到 childOb
             dep.notify();
         },
     });
@@ -59,31 +73,43 @@ function defineReactive(obj, key, val) {
  * 3. 数组的响应式通过重写原型方法实现。
  */
 export default class Observer {
-    constructor(value) {
-        this.value = value;
+    constructor(obj) {
+        this.value = obj;
 
-        if (Array.isArray(value)) {
+        // 把 Observer 实例添加到引用类型的 value 的 __ob__ 属性上，有以下作用：
+        // 1. 建立数据与 Observer 实例的关联
+        // 2. 作为 Observer 实例的引用，提供 dep（依赖收集器）、vmCount（引用计数）等核心属性，支撑依赖追踪与数据更新通知机制
+        // 3. 不可枚举特性（enumerable: false）避免干扰 for...in 等遍历逻辑
+        def(obj, '__ob__', this);
+
+        // 为什么要在这里再添加一个添加 dep？
+        // 这个 dep 收集器就会跟随 __ob__ 一并添加到引用类型的数据上
+        // 这个 dep 对数组来说很有用，因为数组的响应式处理不走 defineProperty，没有对应的订阅发布器去派发更新
+        // 这样的话，在数组的响应式处理中，就可以通过 __ob__.dep 派发通知
+        this.dep = new Dep();
+
+        if (Array.isArray(obj)) {
             // 数组的响应式处理
             // value.__proto__ = arrayMethods; // 通过数组原型链，修改数组方法
-            this.observeArray(value);
+            this.observeArray(obj);
         } else {
             // 对象的响应式处理
-            this.walk(value);
+            this.walk(obj);
         }
     }
 
     // 递归定义对象的响应式属性
-    walk(obj) {
-        const keys = Object.keys(obj);
+    walk() {
+        const keys = Object.keys(this.value);
         for (let i = 0; i < keys.length; i++) {
-            defineReactive(obj, keys[i], obj[keys[i]]);
+            defineReactive(this.value, keys[i], this.value[keys[i]]);
         }
     }
 
     // 递归观测数组元素
-    observeArray(items) {
-        for (let i = 0, l = items.length; i < l; i++) {
-            observe(items[i]);
+    observeArray() {
+        for (let i = 0, l = this.value.length; i < l; i++) {
+            observe(this.value[i]);
         }
     }
 }
