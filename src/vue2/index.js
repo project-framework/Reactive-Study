@@ -15,14 +15,12 @@ function Vue(options) {
     new Watcher(this, 'data.user');
     new Watcher(this, 'data.user.name');
     new Watcher(this, 'data.user.age');
-    // new Watcher(this, 'data.list')
+    new Watcher(this, 'data.list');
 }
 
 Vue.$set = function (data, key, value) {
     data[key] = value;
-    if (Array.isArray(value)) {
-        //
-    } else {
+    if (!Array.isArray(value)) {
         defineReactive(data, key, value);
     }
 
@@ -44,6 +42,7 @@ let vm = new Vue({
         this.data.count++;
         this.data.user.name = '李四';
         Vue.$set(this.data.list, 3, '嘎嘎嘎');
+        this.data.list.push('哦哦哦');
     },
 });
 

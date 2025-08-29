@@ -1,5 +1,6 @@
 import Dep from '../dep/index.js';
 import { def } from '../util/index.js';
+import { arrayMethods } from './array.js';
 
 /**
  * @description 为引用类型创建数据劫持，并返回一个 Observer 实例
@@ -74,27 +75,26 @@ export function defineReactive(obj, key, val) {
  */
 export default class Observer {
     constructor(obj) {
-        this.value = obj;
-
         // 把 Observer 实例添加到引用类型的 value 的 __ob__ 属性上，有以下作用：
         // 1. 建立数据与 Observer 实例的关联
         // 2. 作为 Observer 实例的引用，提供 dep（依赖收集器）、vmCount（引用计数）等核心属性，支撑依赖追踪与数据更新通知机制
         // 3. 不可枚举特性（enumerable: false）避免干扰 for...in 等遍历逻辑
         def(obj, '__ob__', this);
+        this.value = obj;
 
         // 为什么要在这里再添加一个添加 dep？
         // 这个 dep 收集器就会跟随 __ob__ 一并添加到引用类型的数据上
-        // 这个 dep 对数组来说很有用，因为数组的响应式处理不走 defineProperty，没有对应的订阅发布器去派发更新
+        // 这个 dep 对数组来说很有用，因为数组的响应式处理不走 defineProperty（走 observeArray），没有对应的订阅发布器去派发更新
         // 这样的话，在数组的响应式处理中，就可以通过 __ob__.dep 派发通知
         this.dep = new Dep();
 
         if (Array.isArray(obj)) {
             // 数组的响应式处理
-            // value.__proto__ = arrayMethods; // 通过数组原型链，修改数组方法
-            this.observeArray(obj);
+            this.value.__proto__ = arrayMethods; // 通过数组原型链，修改数组方法
+            this.observeArray();
         } else {
             // 对象的响应式处理
-            this.walk(obj);
+            this.walk();
         }
     }
 
