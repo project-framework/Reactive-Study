@@ -7,6 +7,8 @@ import { arrayMethods } from './array.js';
  */
 export function observe(obj) {
     // 终止条件：非对象、null 或已被劫持
+
+    // 返回 __ob__ 是给数组准备的。这样，当对象在对每个属性进行劫持时，里面的数组，就能通过自身的 __ob__.dep 收集自己，详见 52 → 55 行
     if (
         obj &&
         Object.prototype.hasOwnProperty.call(obj, '__obj__') &&
@@ -47,7 +49,7 @@ export function defineReactive(obj, key, val) {
             if (Dep.target) {
                 dep.depend();
 
-                // __ob__ 也要在这里收集依赖
+                // 当访问该对象的数组属性时，通过数组自身的 __ob__.dep 收集对数组整体的依赖
                 if (childOb) {
                     childOb.dep.depend();
                 }
