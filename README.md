@@ -222,6 +222,7 @@ const arrayMethods = Object.create(arrayProto);
 ```
 
 ### 流程
+![Vue2响应式原理](https://cdn.nlark.com/yuque/0/2025/png/29092218/1756536316358-1fde693a-3af3-487e-b810-abadb2f94402.png?x-oss-process=image%2Fformat%2Cwebp)
 
 ### 性能优化
 异步更新：通过 nextTick 批量合并更新，避免频繁 DOM 操作。
