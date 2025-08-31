@@ -9,3 +9,11 @@ export function def(obj, key, val, enumerable) {
         configurable: true,
     });
 }
+
+/**
+ * Check if val is a valid array index.
+ */
+export function isValidArrayIndex(val) {
+    const n = parseFloat(String(val));
+    return n >= 0 && Math.floor(n) === n && isFinite(val);
+}

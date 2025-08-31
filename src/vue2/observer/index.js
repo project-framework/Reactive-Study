@@ -1,5 +1,5 @@
 import Dep from '../dep/index.js';
-import { def } from '../util/index.js';
+import { def, isValidArrayIndex } from '../util/index.js';
 import { arrayMethods } from './array.js';
 
 /**
@@ -114,4 +114,39 @@ export default class Observer {
             observe(this.value[i]);
         }
     }
+}
+
+/**
+ * Set a property on an object. Adds the new property and
+ * triggers change notification if the property doesn't
+ * already exist.
+ */
+export function set(target, key, val) {
+    const ob = target.__ob__;
+
+    // 原有响应式数组
+    // 使用 splice 将新值并入数组
+    if (isArray(target) && isValidArrayIndex(key)) {
+        target.length = Math.max(target.length, key);
+        target.splice(key, 1, val); // 因为 target 的方法已经被重写，所以此时已经有了响应式
+        return val;
+    }
+
+    // 原有响应式对象
+    // 该属性原来已存在于对象中，则直接更新
+    if (key in target && !(key in Object.prototype)) {
+        target[key] = val;
+        return val;
+    }
+
+    // 非响应式的数据
+    // 需要进行响应式处理
+    if (!ob) {
+        target[key] = val;
+        return val;
+    }
+    defineReactive(ob.value, key, val);
+    ob.dep.notify();
+
+    return val;
 }

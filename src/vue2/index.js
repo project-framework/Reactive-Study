@@ -1,4 +1,4 @@
-import { observe, defineReactive } from './observer/index.js';
+import { observe, defineReactive, set } from './observer/index.js';
 import Watcher from './watcher/index.js';
 
 function Vue(options) {
@@ -18,16 +18,7 @@ function Vue(options) {
     new Watcher(this, 'data.list');
 }
 
-Vue.$set = function (data, key, value) {
-    data[key] = value;
-    if (!Array.isArray(value)) {
-        defineReactive(data, key, value);
-    }
-
-    // 新添加的属性直接在这里使用 __ob__ 保存的 Observer 实例派发更新
-    // 在 Observer 中已经额外添加了 dep
-    data.__ob__.dep.notify();
-};
+Vue.$set = set;
 
 let vm = new Vue({
     data: {
