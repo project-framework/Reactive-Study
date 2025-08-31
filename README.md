@@ -1,13 +1,19 @@
-# Vue 2 响应式原理 
+# Vue 2 响应式原理
+
 👉️ [你真的搞懂 Vue 的响应式了吗](https://www.bilibili.com/video/BV1H44y167Ey/?spm_id_from=333.337.search-card.all.click&vd_source=da6724ff06b295cd88f11f223e834680)
+
 ## 核心概括
+
 Vue2 的响应式系统基于 JavaScript 的 `Object.defineProperty` 方法进行**数据劫持** ，配合**发布订阅模式**实现数据与视图的响应式更新。
 
 ## 源码核心组件
+
 `Dep` 类、`Watcher` 类、`Observer` 类、`observe()` 函数、`defineReactive()` 函数、`def()` 函数
 
 ### Dep 类：依赖收集
+
 管理依赖（Watcher），实现依赖收集与派发更新。
+
 - 每个响应式属性对应一个 Dep 实例。
 - 在 getter 中调用 depend() 收集当前 Watcher。
 - 在 setter 中调用 notify() 触发依赖更新。
@@ -37,8 +43,11 @@ class Dep {
   }
 }
 ```
+
 ### Watcher 类：观察者与更新触发
+
 承担着数据变化监听与更新触发的关键角色，其完整生命周期涵盖初始化、依赖收集与更新执行三个阶段，是连接数据模型与视图渲染的桥梁。
+
 - 作为 Dep 和视图的桥梁，监听数据变化并触发视图更新。
 - 在 `get()` 中触发 getter，完成依赖收集。
 - 在 `update()` 中触发视图更新（如组件重新渲染）。
@@ -79,8 +88,11 @@ class Dep {
   }
 }
 ```
+
 ### Observer 类：数据劫持的实现
+
 Observer 类的核心职责是将普通 JavaScript 数据（对象或数组）转化为响应式数据。通过对数据的深度劫持，实现数据变更时的自动响应。
+
 - 负责劫持数据属性，创建 Dep 实例，将普通对象转换为响应式对象。
 - 递归遍历对象属性，调用 defineReactive 创建 getter 和 setter。
 - 数组的响应式通过重写原型方法实现。
@@ -121,12 +133,14 @@ class Observer {
 }
 ```
 
-\__ob__ 属性的关键作用： 
+\__ob__ 属性的关键作用：
+
 - 标记响应式：添加 \__ob__ 属性，建立数据与 Observer 实例的关联
-- 功能载体：作为 Observer 实例的引用，提供 dep（依赖收集器）、vmCount（引用计数）等核心属性，支撑依赖追踪与数据更新通知机制 
+- 功能载体：作为 Observer 实例的引用，提供 dep（依赖收集器）、vmCount（引用计数）等核心属性，支撑依赖追踪与数据更新通知机制
 - 不可枚举特性（enumerable: false）避免干扰 for...in 等遍历逻辑
   
 #### 辅助函数 observe()：响应式处理的入口控制器
+
 判断对象是否需要观测，若未观测则创建 Observer 实例，如果该值已经有观察者，返回现有的观察者。
 
 ```js
@@ -142,6 +156,7 @@ function observe(obj) {
 ```
 
 #### 辅助函数 defineReactive()：进行数据劫持
+
 - 通过 Object.defineProperty 定义 getter 和 setter。
 - getter 触发依赖收集，setter 触发依赖更新。
 
@@ -176,6 +191,7 @@ function defineReactive(obj, key, val) {
 ```
 
 #### 辅助函数 def()：简化属性定义的底层支撑
+
 - 每个响应式属性对应一个 Dep 实例。
 - 在 getter 中调用 depend() 收集当前 Watcher。
 - 在 setter 中调用 notify() 触发依赖更新。
@@ -193,6 +209,7 @@ export function def(obj: Object, key: string, val: any, enumerable?: boolean) {
 ```
 
 ### 数组的响应式处理
+
 重写数组的变异方法，在方法执行后手动触发 Dep.notify()。
 
 ```js
@@ -222,13 +239,16 @@ const arrayMethods = Object.create(arrayProto);
 ```
 
 ### 流程
+
 ![Vue2响应式原理](https://cdn.nlark.com/yuque/0/2025/png/29092218/1756536316358-1fde693a-3af3-487e-b810-abadb2f94402.png?x-oss-process=image%2Fformat%2Cwebp)
 
 ### 性能优化
+
 异步更新：通过 nextTick 批量合并更新，避免频繁 DOM 操作。
 虚拟 DOM Diff：仅更新差异节点，减少不必要的渲染。
 
 ### 缺点
+
 - 无法检测对象属性的添加/删除：需通过 Vue.set 或 Vue.delete 处理。
 - 数组索引修改不触发更新：需通过数组变异方法或 Vue.set。
 - 性能开销：递归观测深层嵌套对象可能导致内存占用较高。
