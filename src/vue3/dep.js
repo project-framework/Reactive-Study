@@ -17,7 +17,7 @@ export default class Dep {
 
     // 触发依赖的更新
     notify() {
-        this.subs.forEach(effect => effect.update());
+        this.subs.forEach(watcher => watcher.run());
     }
 }
 

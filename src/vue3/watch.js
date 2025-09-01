@@ -5,24 +5,15 @@ import Dep from './dep.js';
  */
 export default class Watcher {
     constructor(effect) {
-        // 当下激活的副作用
         this.effect = effect;
-        this.run();
+        Dep.activeEffect = this;
+        this.run(); // 当下激活的副作用
+        Dep.activeEffect = null;
     }
 
     // 执行副作用
     run() {
-        // 保存当前的订阅者
-        Dep.activeEffect = this;
-
-        // 运行副作用
         this.effect();
-
-        Dep.activeEffect = null;
-    }
-
-    update() {
-        this.run();
     }
 }
 
