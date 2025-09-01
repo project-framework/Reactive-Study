@@ -254,3 +254,525 @@ const arrayMethods = Object.create(arrayProto);
 - 性能开销：递归观测深层嵌套对象可能导致内存占用较高。
 
 # Vue 3 响应式原理
+
+## 使用经验
+
+响应式是函数与数据的关联。
+
+1. 被监控的函数：render、computed 回调、watchEffect、watch；
+2. 函数运行期间用到了响应式数据；
+3. 响应式数据一定是一个 Proxy 对象；
+
+## 前置知识点
+
+### 副作用
+
+指代码执行时除了产生返回值之外，对外部环境产生的任何可观察的变化。
+
+常见的副作用（side effect）：数据请求、手动修改 DOM、localStorage 操作等。
+
+```js
+// 无副作用函数
+// 纯函数：只依赖输入，无副作用，可预测结果
+function sum(a, b) {
+  return a + b; 
+}
+
+// 无论调用多少次：
+sum(2, 3) // 总是返回5
+```
+
+```js
+// 定时器副作用
+function startTimer() {
+  setInterval(() => {
+    console.log('Tick'); // 副作用：持续输出日志
+  }, 1000);
+}
+```
+
+```js
+// 网络请求副作用
+async function fetchUser() {
+  const res = await fetch('/api/user'); // 副作用：发起网络请求
+  const data = await res.json();
+  return data;
+}
+```
+
+### 数据结构
+
+#### WeakMap**（顶层存储）**
+
+**键**：原始对象（`rawObject`）
+
+**值**：`Map` 对象（存储该对象的所有依赖）
+
+**关系**：`原始对象 → 依赖映射表`
+
+**特点**：弱引用，不阻止原始对象被 GC 回收
+
+```js
+// 全局 WeakMap 结构
+const targetMap = new WeakMap();
+
+// 示例：
+const user = { name: "Alice" }; // 原始对象
+targetMap.set(user, new Map()); // 键：user对象，值：新建的Map
+```
+
+#### Map**（依赖映射）**
+
+**键**：响应式对象的属性名（`string | symbol`）
+
+**值**：`Set` 对象（存储该属性的所有副作用函数）
+
+**关系**：`属性名 → 副作用集合`
+
+**特点**：精确到属性级的依赖追踪
+
+```javascript
+// 从 WeakMap 获取对象的依赖映射
+const depsMap = targetMap.get(user);
+
+// 为 name 属性创建依赖集合
+depsMap.set("name", new Set());
+// 结构示意：
+// {
+//   "name" → Set[effect1, effect2],
+//   "age"  → Set[effect3]
+// }
+```
+
+#### Set**（副作用集合）**
+
+**存储内容**：副作用函数（`effect`）
+
+**关系**：`属性变更时需要执行的函数集合`
+
+**特点**：自动去重，确保同一函数不重复添加，比数组好用。
+
+```javascript
+const nameEffects = depsMap.get("name");
+
+function updateDOM() {
+  document.title = user.name;
+}
+
+nameEffects.add(updateDOM); // 添加副作用函数
+```
+
+![树形数据结构](https://cdn.nlark.com/yuque/0/2025/png/29092218/1756658650252-88303674-1301-46f4-8726-663f389a7268.png?x-oss-process=image%2Fformat%2Cwebp)
+
+## 响应式系统的基本实现
+
+### 1. 实现 Dep 依赖收集
+
+Dep 负责收集副作用。
+
+Set 存储具体的副作用，能自动去重，避免重复执行。
+
+```javascript
+export default class Dep {
+    constructor() {
+        // 存放 watcher 实例
+        // Set 是一个高效地管理不重复的数据集合，比数组好用
+        this.subscribers = new Set();
+    }
+
+    // 添加订阅者
+    addSub(sub) {
+        if (sub && sub.update) {
+            this.subscribers.add(sub);
+        }
+    }
+
+    // 移除订阅者
+    removeSub(sub) {
+        this.subscribers.delete(sub);
+    }
+
+    // 通知所有订阅者
+    notify() {
+        this.subscribers.forEach(sub => {
+            sub.update();
+        });
+    }
+}
+
+// 创建 Dep 实例的工具函数
+export function createDep() {
+    return new Dep();
+}
+```
+
+### 2. 实现副作用管理模块
+
+Vue 2 的 Watcher 作为通用的"观察者"，在 Vue 3 中被拆解为 ReactiveEffect/ComputedRef/WatchAPI
+
+所以，`ReactiveEffect` 在某种程度上可以理解为是 Vue3 的“Watcher”。
+
+```javascript
+// 当前激活的 effect
+export let activeEffect = null;
+
+// 简化的 ReactiveEffect 类
+class ReactiveEffect {
+    constructor(fn) {
+        // 副作用函数
+        this.fn = fn;
+
+        // 类型：Dep[]，存储所有包含该 effect 的 Dep 依赖集合
+        // effect 重新执行时，可以用来清理无效依赖
+        this.deps = [];
+    }
+
+    // 执行副作用函数并收集依赖
+    run() {
+        activeEffect = this;
+        const result = this.fn();
+        activeEffect = null;
+        return result;
+    }
+
+    // 更新时执行
+    update() {
+        this.run();
+    }
+}
+
+/**
+ * @description 将用户定义的副作用包装成可追踪的结构，因为函数中可能会用到响应式数据，需要侦听，一旦变化，立即触发更新
+ * @param {Function} fn 用户定义的副作用函数
+ */
+export function effect(fn) {
+    const _effect = new ReactiveEffect(fn);
+    _effect.run();
+    return _effect;
+}
+```
+
+### 3. Reactive 的实现
+
+`reactive`可以类比成 Vue2 中的 Observer 类，在这里使用 Proxy 实现数据的劫持、Dep 的副作用收集与派发更新。
+
+```javascript
+import Dep, { createDep } from './dep.js';
+import { activeEffect } from './effect.js';
+
+// 顶层存储，存储该对象的所有依赖
+export const targetMap = new WeakMap();
+
+// 收集依赖
+export function track(target, key) {
+    if (!activeEffect) return;
+
+    // 1. 获取目标对象的依赖 Map
+    let depsMap = targetMap.get(target);
+    if (!depsMap) {
+        // 初始化 Map
+        // 使用 Map 为对象的每一个属性创建一个依赖收集器，值就是该属性对应的所有副作用函数（用 Set 收集）
+        targetMap.set(target, (depsMap = new Map()));
+    }
+
+    // 2. 再获取 Map 中对象属性的依赖 Dep
+    let dep = depsMap.get(key);
+    if (!dep) {
+        depsMap.set(key, (dep = createDep()));
+    }
+
+    // 3. 在 trackEffects 函数中将依赖dep 与副作用 effect 建立双向连接
+    trackEffects(dep);
+}
+
+// dep 与 effect 建立双向连接
+function trackEffects(dep) {
+    // 如果当前 effect 尚未加入此依赖集合
+    if (!dep.subscribers.has(activeEffect)) {
+        dep.addSub(activeEffect); // 将 effect 添加到 dep
+        activeEffect.deps.push(dep); // 将 dep 添加到 effect 的 deps 数组中
+    }
+}
+
+// 触发更新
+export function trigger(target, key) {
+    // 1. 获取目标对象的依赖 Map
+    const depsMap = targetMap.get(target);
+    if (!depsMap) return;
+
+    // 2. 再从 Map 中获取属性的依赖 Dep
+    const dep = depsMap.get(key);
+    if (dep) {
+        dep.notify(); // 通知所有订阅者
+    }
+}
+
+// 创建响应式对象
+export function reactive(target) {
+    return new Proxy(target, {
+        get(target, key, receiver) {
+            const res = Reflect.get(target, key, receiver);
+            // 收集依赖
+            track(target, key);
+            return res;
+        },
+        set(target, key, value, receiver) {
+            const res = Reflect.set(target, key, value, receiver);
+            // 触发更新
+            trigger(target, key);
+            return res;
+        },
+    });
+}
+```
+
+## 调度执行
+
+触发副作用函数重新执行时，有能力决定执行时机、次数、方式。
+
+注册副作用的函数支持第二个选项参数 scheduler 调度器，在触发副作用时，将副作用函数当做回调参数传递过去，让用户自己控制如何执行。
+
+```javascript
+// 注册副作用的函数
+function effetc(fn, options = {}) {
+  const effetcFn = () => {
+    // ...
+  }
+
+  // 将 options 挂载到 effectFn 上
+  effetcFn.options = options;
+
+  effetcFn();
+}
+
+// 触发副作用的函数
+function trigger(target, key) {
+  // 如果一个副作用存在调度器，则调用该调度器，并将副作用函数作为参数传递
+  if (effectFn.options.scheduler) {
+    effectFn.options.scheduler(effectFn);
+  } else {
+    effectFn();
+  }
+}
+```
+
+## 计算属性 computed 与 lazy
+
+- lazy 惰性
+
+与调度器类似，也通过第二个 options 参数显式地传入 `{ lazy: true }`。所以，当 `options.lazy` 为 `true` 时，不立即执行副作用函数，而是返回该函数（并非原函数 fn()，而是包装过的 effectFn()），用户手动调用时就能获取其返回值。
+
+```javascript
+function effect(fn, options) {
+  const effectFn = () => {
+    // 略......
+    // 将 fn 的执行结果存储到 res 中
+    const res = fn();
+    // 将 res 作为 effectFn 的返回值
+    return res;
+  };
+  effectFn.options = options;
+  // 非 lazy 才执行
+  if (!options.lazy) {
+    effectFn();
+  }
+  return effectFn;
+}
+```
+
+- 懒计算（实现只有当读取 value 时，才会执行 effectFn 并返回计算结果）
+
+封装一个 computed 函数，返回一个对象，利用对象的 getter 返回 effectFn 的调用。
+
+```javascript
+function computed(getter) {
+  // 使用 effect() 创建一个 lazy 的 getter 副作用函数
+  const effectFn = effect(getter, { lazy: true });
+
+  // 利用 obj 的 getter 返回该函数的调用
+  const obj = {
+    get value() {
+      return effectFn();
+    }
+  }
+
+  return obj;
+}
+```
+
+此时，只有当真正读取 `.value` 值时，它才会计算并得到值
+
+- 缓存
+
+`value`：缓存上一次计算的值；
+
+`dirty`：表示是否需要重新计算；
+
+```javascript
+function computed(getter) {
+  let value;
+  let dirty = true;
+
+  // 使用 effect() 创建一个 lazy 的 getter 副作用函数
+  const effectFn = effect(getter, {
+    lazy: true,
+    // 添加调度器，在数据更新触发 trigger 时，会重置 dirty 为 false 
+    scheduler() {
+      dirty = false;
+    }
+  });
+
+  // 利用 obj 的 getter 返回该函数的调用
+  const obj = {
+    get value() {
+      if (dirty) {
+        value = effectFn();
+      }
+      return value;
+    }
+  }
+
+  return obj;
+}
+```
+
+## watch 的实现原理
+
+本质就是观测一个响应式数据，当数据发生变化时，通知并执行响应的回调函数。
+
+- 如何做到当数据发生变化，调用副作用函数
+
+利用`options.scheduler` 调度器，在数据发生变化后执行
+
+```javascript
+function watch(source, cb) {
+  effect(
+    () => source.foo,
+    {
+      // 数据发生变化，触发 trigger 时，便可在这里执行用户的回调
+      scheduler() {
+        cb();
+      }
+    }
+  );
+}
+```
+
+- 如何读取对象上任意属性
+
+封装一个 traverse 函数递归读取数据，并让其支持传入一个函数
+
+```javascript
+function traverse(value, seen = new Set()) {
+  // 读取的原始值，或者已经被读取过了，什么都不用做  
+  if (typeof value !== 'object' || value === null || seen.has(value)) return;
+
+  // 将数据添加到 seen 中，代表已经遍历过，避免循环引用引起的死循环
+  seen.add(value)
+
+  // 如果是对象，则循环读取里面的每一个数据
+  for (const k in value) {
+    traverse(value[k], seen)
+  }
+
+  return value
+}
+
+function watch(source, cb) {
+  // 支持直接传入 getter 函数
+  let getter;
+  if (typeof source === 'function') {
+    getter = source;
+  } else {
+    getter = traverse(source);
+  }
+
+  effect(getter,{
+    scheduler() {
+      cb();
+    }
+  });
+}
+```
+
+- 获取新值和旧值
+
+充分利用 effect 函数的 `lazy` 选项
+
+```javascript
+function watch(source, cb) {
+  // 处理 getter，略....
+
+  let oldValue, newValue;
+
+  const effectFn = effect(getter,{
+    lazy: true,
+    scheduler() {
+      // 在 trigger 触发时，会执行副作用函数
+      newValue = effectFn();
+      cb(oldValue, newValue);
+      // 更新旧值，不然下一次会得到错误的旧值
+      oldValue = newValue;
+    }
+  });
+
+  // 手动调用副作用函数，拿到的值就是旧值（这里先执行）
+  oldValue = effectFn();
+}
+```
+
+- `immediate` 立即执行
+
+将 scheduler 中的逻辑封装起来，根据 immediate 看是否需要先执行一次。
+
+```javascript
+function watch(source, cb, options = {}) {
+  // 处理 getter，略....
+  let oldValue, newValue;
+
+  const job = () => {
+    newValue = effectFn();
+    cb(oldValue, newValue);
+    oldValue = newValue;
+  }
+
+  const effectFn = effect(getter,{
+    lazy: true,
+    scheduler() {
+      job();
+    }
+  });
+
+  if (options.immediate) {
+    job();
+  } else {
+    oldValue = effectFn();
+  }
+}
+```
+
+- 支持 `flush` 调整回调函数的刷新时机
+
+flush 本质上是指调度函数的执行时机。默认情况下，侦听器回调会在父组件更新 (如有) **之后**、所属组件的 DOM 更新**之前**被调用。
+
+```javascript
+function watch(source, cb, options = {}) {
+  // 略...
+
+  const effectFn = effect(getter,{
+    lazy: true,
+    scheduler() {
+      if (options.flush === 'post') {
+        // 放入微任务中，等待 DOM 更新结束后在执行。
+        const p = Promise.resolve();
+        p.then(job);
+      } else {
+        job();
+      }
+    }
+  });
+
+  // 略...
+}
+```
+
