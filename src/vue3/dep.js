@@ -8,14 +8,16 @@ export default class Dep {
         this.subs = new Set();
     }
 
+    // 添加 wathcer
     depend() {
         if (Dep.activeEffect) {
             this.subs.add(Dep.activeEffect);
         }
     }
 
+    // 触发依赖的更新
     notify() {
-        this.subs.forEach(effect => effect.update()); // 触发依赖的更新
+        this.subs.forEach(effect => effect.update());
     }
 }
 
@@ -31,27 +33,50 @@ export const targetMap = new WeakMap();
 
 /**
  * @description 创建依赖
- * @param {*} rawObject 原始对象
- * @param {*} key 原始对象的属性名
+ * @param {object} rawObject 原始对象
+ * @param {string} key 原始对象的属性名
+ * @returns {Dep} 返回某个响应式属性的 Dep 依赖
  */
-export function createDep(rawObject, key) {
+function createDep(rawObject, key) {
     let depsMap = targetMap.get(rawObject);
 
-    // 判断当前对象是否有依赖，如果没有就给它初始化一个 map
-    // 为什么要初始化一个 map 呢？
-    // 因为需要为对象的每一个属性创建一个依赖
+    // 1. 给当前对象创建一个 Map 映射，存储该对象的所有依赖
+    // 为什么要初始化一个 map 呢？因为需要为对象的每一个属性创建一个依赖收集器
     // Map 的键名就是响应式对象的属性名，值就是该属性对应的所有副作用函数（用 Set 收集）
     if (!depsMap) {
         depsMap = new Map();
         targetMap.set(rawObject, depsMap);
     }
 
-    // 获取属性的副作用集合 (Map操作)
+    // 2. 获取/初始化属性对应的 Dep 依赖（Dep 实例里面存着属性的所有副作用）
     let dep = depsMap.get(key);
     if (!dep) {
         dep = new Dep();
         depsMap.set(key, dep);
     }
 
+    // 3. 通过对象（WeakMap） → 对象的属性（Map） → 属性对应的依赖（Set）
+    // 最终找到对象的某个属性的所有依赖
     return dep;
+}
+
+/**
+ * @description 追踪依赖
+ * @param {object} rawObject 原始对象
+ * @param {string} key 原始对象的属性名
+ */
+export function track(target, key) {
+    const dep = createDep(target, key);
+    dep.depend();
+}
+
+/**
+ * @description 触发依赖
+ * @param {object} rawObject 原始对象
+ * @param {string} key 原始对象的属性名
+
+ */
+export function trigger(target, key) {
+    const dep = createDep(target, key);
+    dep.notify();
 }

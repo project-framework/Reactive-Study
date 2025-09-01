@@ -1,21 +1,17 @@
-import { createDep } from './dep.js';
+import { track, trigger } from './dep.js';
 
 export const mutableCollectionHandlers = {
-    // track deps
+    // 在数据劫持中进行依赖收集
     get(target, key) {
-        // 在数据劫持中进行依赖收集
-        const dep = createDep(target, key);
-        dep.depend();
-
+        track(target, key);
         return Reflect.get(target, key);
     },
 
-    // trigger deps 触发依赖
+    // 触发依赖更新
     set(target, key, value) {
         const result = Reflect.set(target, key, value);
-        // 触发依赖更新
-        const dep = createDep(target, key);
-        dep.notify();
+
+        trigger(target, key);
         return result;
     },
 };
