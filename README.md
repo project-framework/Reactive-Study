@@ -4,7 +4,7 @@
 
 ## 核心概括
 
-Vue2 的响应式系统基于 JavaScript 的 `Object.defineProperty` 方法进行**数据劫持** ，配合**发布订阅模式**实现数据与视图的响应式更新。
+Vue2 的响应式系统基于 JavaScript 的 `Object.defineProperty` 方法进行 **数据劫持** ，配合 **发布订阅模式** 实现数据与视图的响应式更新。
 
 ## 源码核心组件
 
@@ -302,7 +302,7 @@ async function fetchUser() {
 
 ### 数据结构
 
-#### WeakMap**（顶层存储）**
+#### WeakMap **（顶层存储）**
 
 **键**：原始对象（`rawObject`）
 
@@ -321,7 +321,7 @@ const user = { name: "Alice" }; // 原始对象
 targetMap.set(user, new Map()); // 键：user对象，值：新建的Map
 ```
 
-#### Map**（依赖映射）**
+#### Map **（依赖映射）**
 
 **键**：响应式对象的属性名（`string | symbol`）
 
@@ -344,7 +344,7 @@ depsMap.set("name", new Set());
 // }
 ```
 
-#### Set**（副作用集合）**
+#### Set **（副作用集合）**
 
 **存储内容**：副作用函数（`effect`）
 
@@ -753,7 +753,7 @@ function watch(source, cb, options = {}) {
 
 - 支持 `flush` 调整回调函数的刷新时机
 
-flush 本质上是指调度函数的执行时机。默认情况下，侦听器回调会在父组件更新 (如有) **之后**、所属组件的 DOM 更新**之前**被调用。
+flush 本质上是指调度函数的执行时机。默认情况下，侦听器回调会在父组件更新 (如有) **之后**、所属组件的 DOM 更新 **之前**被调用。
 
 ```javascript
 function watch(source, cb, options = {}) {
@@ -776,3 +776,35 @@ function watch(source, cb, options = {}) {
 }
 ```
 
+# React
+
+React 核心四个包，以及阅读源码的理解顺序：
+
+1. react-dom
+
+   处理端能力，将 React 组件（虚拟 DOM/Fiber 树）转换为真实 DOM 的渲染逻辑、事件系统、生命周期桥接等关键代码。
+
+   - createRoot() → createContainer()
+   - render() → updateContainer()
+
+2. react
+
+   统一为外部开发者提供接口协议。
+
+   - useState、useEffect → resolveDispatcher()
+
+3. react-reconciler
+
+   包含虚拟 DOM Diff 算法、Fiber 架构实现、组件渲染与更新调度等关键逻辑.
+
+   - createFiberRoot()
+   - initializeUpdateQueue()
+   - updateContainer()
+   - createUpdate()
+   - enqueueUpdate()
+
+4. scheduler
+
+   优化任务优先级调度、时间切片等。
+
+   - 使用小跟堆（Main Heap）进行优先级的处理
